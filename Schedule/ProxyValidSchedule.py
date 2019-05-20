@@ -13,47 +13,58 @@
 __author__ = 'JHao'
 
 import sys
+import time
+
+try:
+    from Queue import Queue  # py3
+except:
+    from queue import Queue  # py2
 
 sys.path.append('../')
 
-from Util.utilFunction import validUsefulProxy
+from Schedule.ProxyCheck import ProxyCheck
 from Manager.ProxyManager import ProxyManager
-from Util.LogHandler import LogHandler
 
 
-class ProxyValidSchedule(ProxyManager):
+class ProxyValidSchedule(ProxyManager, object):
     def __init__(self):
         ProxyManager.__init__(self)
-        self.log = LogHandler('valid_schedule')
+        self.queue = Queue()
+        self.proxy_item = dict()
 
-    def __validProxy(self):
+    def __validProxy(self, threads=20):
         """
-        验证代理
+        验证useful_proxy代理
+        :param threads: 线程数
         :return:
         """
-        while True:
-            self.db.changeTable(self.useful_proxy_queue)
-            for each_proxy in self.db.getAll():
-                if isinstance(each_proxy, bytes):
-                    each_proxy = each_proxy.decode('utf-8')
+        thread_list = list()
+        for index in range(threads):
+            thread_list.append(ProxyCheck(self.queue, self.proxy_item))
 
-                if validUsefulProxy(each_proxy):
-                    # 成功计数器加1
-                    self.db.inckey(each_proxy, 1)
-                    self.log.debug('validProxy_b: {} validation pass'.format(each_proxy))
-                else:
-                    # 失败计数器减一
-                    self.db.inckey(each_proxy, -1)
-                    # self.db.delete(each_proxy)
-                    self.log.info('validProxy_b: {} validation fail'.format(each_proxy))
-                value = self.db.getvalue(each_proxy)
-                if value and int(value) < -5:
-                    # 计数器小于-5删除该代理
-                    self.db.delete(each_proxy)
-        self.log.info('validProxy_a running normal')
+        for thread in thread_list:
+            thread.daemon = True
+            thread.start()
+
+        for thread in thread_list:
+            thread.join()
 
     def main(self):
-        self.__validProxy()
+        self.putQueue()
+        while True:
+            if not self.queue.empty():
+                self.log.info("Start valid useful proxy")
+                self.__validProxy()
+            else:
+                self.log.info('Valid Complete! sleep 5 sec.')
+                time.sleep(5)
+                self.putQueue()
+
+    def putQueue(self):
+        self.db.changeTable(self.useful_proxy_queue)
+        self.proxy_item = self.db.getAll()
+        for item in self.proxy_item:
+            self.queue.put(item)
 
 
 def run():

@@ -6,9 +6,15 @@ self.name为Redis中的一个key
 2017/4/17 修改pop
 '''
 
+# ############################
+# 已弃用，
+# SsdbClient.py 支持redis
+##############################
+
 import json
 import random
 import redis
+import sys
 
 
 class RedisClient(object):
@@ -16,7 +22,11 @@ class RedisClient(object):
     Reids client
     """
 
-    def __init__(self, name, host, port):
+    # 为了保持DbClient的标准
+    # 在RedisClient里面接受username参数, 但不进行使用.
+    # 因为不能将username通过kwargs传进redis.Redis里面, 会报错:
+    # TypeError: __init__() got an unexpected keyword argument 'username'
+    def __init__(self, name, host, port, username, **kwargs):
         """
         init
         :param name:
@@ -25,7 +35,7 @@ class RedisClient(object):
         :return:
         """
         self.name = name
-        self.__conn = redis.Redis(host=host, port=port, db=0)
+        self.__conn = redis.Redis(host=host, port=port, db=0, **kwargs)
 
     def get(self):
         """
@@ -33,8 +43,15 @@ class RedisClient(object):
         :return:
         """
         key = self.__conn.hgetall(name=self.name)
-        return random.choice(key.keys()) if key else None
-        # return self.__conn.srandmember(name=self.name)
+        # return random.choice(key.keys()) if key else None
+        # key.keys()在python3中返回dict_keys，不支持index，不能直接使用random.choice
+        # 另：python3中，redis返回为bytes,需要解码
+        rkey = random.choice(list(key.keys())) if key else None
+        if isinstance(rkey, bytes):
+            return rkey.decode('utf-8')
+        else:
+            return rkey
+            # return self.__conn.srandmember(name=self.name)
 
     def put(self, key):
         """
@@ -74,8 +91,13 @@ class RedisClient(object):
         self.__conn.hincrby(self.name, key, value)
 
     def getAll(self):
-        return self.__conn.hgetall(self.name).keys()
-        # return self.__conn.smembers(self.name)
+        # return self.__conn.hgetall(self.name).keys()
+        # python3 redis返回bytes类型,需要解码
+        if sys.version_info.major == 3:
+            return [key.decode('utf-8') for key in self.__conn.hgetall(self.name).keys()]
+        else:
+            return self.__conn.hgetall(self.name).keys()
+            # return self.__conn.smembers(self.name)
 
     def get_status(self):
         return self.__conn.hlen(self.name)
